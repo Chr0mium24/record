@@ -8,8 +8,10 @@ Usage:
 
 Records two V4L2 MJPEG cameras at full resolution. By default preview is
 disabled and soft sync is enabled. Soft sync uses the system wall clock for
-input timestamps; it is not hardware sync. Press q in the terminal to stop when
-preview is disabled; press q in the preview window when preview is enabled.
+input timestamps, then normalizes recorded MKV timestamps against the recording
+start time so container durations remain usable; it is not hardware sync. Press
+q in the terminal to stop when preview is disabled; press q in the preview
+window when preview is enabled.
 
 Defaults:
   CAM_A=/dev/video2
@@ -163,9 +165,17 @@ THREAD_QUEUE_SIZE="${THREAD_QUEUE_SIZE:-1024}"
 
 FFMPEG_GLOBAL_ARGS=()
 FFMPEG_INPUT_SYNC_ARGS=()
+FFMPEG_OUTPUT_SYNC_ARGS=()
 if [[ "$SOFT_SYNC" -eq 1 ]]; then
   FFMPEG_GLOBAL_ARGS=(-copyts)
   FFMPEG_INPUT_SYNC_ARGS=(-use_wallclock_as_timestamps 1)
+  SOFT_SYNC_BASE_EPOCH="$(date '+%s')"
+  SOFT_SYNC_BASE_TIME_UTC="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  FFMPEG_OUTPUT_SYNC_ARGS=(
+    -output_ts_offset "-${SOFT_SYNC_BASE_EPOCH}"
+    -metadata "soft_sync_base_epoch=${SOFT_SYNC_BASE_EPOCH}"
+    -metadata "soft_sync_base_time_utc=${SOFT_SYNC_BASE_TIME_UTC}"
+  )
 fi
 
 TIMESTAMP="$(date '+%Y%m%d_%H%M%S')"
@@ -188,7 +198,7 @@ echo "Saving full-resolution recordings:"
 echo "  ${CAM_A} -> ${OUT_A}"
 echo "  ${CAM_B} -> ${OUT_B}"
 if [[ "$SOFT_SYNC" -eq 1 ]]; then
-  echo "Soft sync enabled: using wall-clock input timestamps."
+  echo "Soft sync enabled: using wall-clock input timestamps normalized from ${SOFT_SYNC_BASE_TIME_UTC}."
 else
   echo "Soft sync disabled."
 fi
@@ -200,8 +210,8 @@ if [[ "$PREVIEW" -eq 0 ]]; then
     "${FFMPEG_INPUT_SYNC_ARGS[@]}" -f v4l2 -input_format "$INPUT_FORMAT" -video_size "$VIDEO_SIZE" -framerate "$FRAMERATE" -i "$CAM_A" \
     -thread_queue_size "$THREAD_QUEUE_SIZE" \
     "${FFMPEG_INPUT_SYNC_ARGS[@]}" -f v4l2 -input_format "$INPUT_FORMAT" -video_size "$VIDEO_SIZE" -framerate "$FRAMERATE" -i "$CAM_B" \
-    -map 0:v:0 -c:v copy -an -f matroska "$OUT_A" \
-    -map 1:v:0 -c:v copy -an -f matroska "$OUT_B"
+    -map 0:v:0 -c:v copy -an "${FFMPEG_OUTPUT_SYNC_ARGS[@]}" -f matroska "$OUT_A" \
+    -map 1:v:0 -c:v copy -an "${FFMPEG_OUTPUT_SYNC_ARGS[@]}" -f matroska "$OUT_B"
   FFMPEG_STATUS=$?
   set -e
   FFPLAY_STATUS=0
@@ -219,8 +229,8 @@ else
     -thread_queue_size "$THREAD_QUEUE_SIZE" \
     "${FFMPEG_INPUT_SYNC_ARGS[@]}" -f v4l2 -input_format "$INPUT_FORMAT" -video_size "$VIDEO_SIZE" -framerate "$FRAMERATE" -i "$CAM_B" \
     -filter_complex "[0:v]fps=${PREVIEW_FPS},scale=${PREVIEW_WIDTH}:-2,setpts=PTS-STARTPTS[p0];[1:v]fps=${PREVIEW_FPS},scale=${PREVIEW_WIDTH}:-2,setpts=PTS-STARTPTS[p1];[p0][p1]hstack=inputs=2,format=yuv420p[preview]" \
-    -map 0:v:0 -c:v copy -an -f matroska "$OUT_A" \
-    -map 1:v:0 -c:v copy -an -f matroska "$OUT_B" \
+    -map 0:v:0 -c:v copy -an "${FFMPEG_OUTPUT_SYNC_ARGS[@]}" -f matroska "$OUT_A" \
+    -map 1:v:0 -c:v copy -an "${FFMPEG_OUTPUT_SYNC_ARGS[@]}" -f matroska "$OUT_B" \
     -map "[preview]" -an -c:v mpeg2video -q:v 5 -f mpegts "udp://127.0.0.1:${PREVIEW_PORT}?pkt_size=1316" \
     < "$CONTROL_FIFO" &
   FFMPEG_PID=$!
