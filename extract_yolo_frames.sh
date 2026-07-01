@@ -9,7 +9,8 @@ Usage:
   ./extract_yolo_frames.sh [options] <video...>
 
 Extract recording videos into the image layout used by the YOLO annotation
-service. By default video0 is written as cam1 and video2 is written as cam2.
+service. Directory globs like fixed/* are processed one session directory at a
+time. By default video0 is written as cam1 and video2 is written as cam2.
 
 Defaults:
   RECORDINGS_ROOT=recordings
@@ -28,6 +29,7 @@ Options:
   --labels-dir DIR        Label directory to create. Overrides --dataset-root.
   --recordings-root DIR   Root used when <session> is not a path. Default: recordings
   --session NAME          Output session prefix. Default: inferred from input.
+                          Only valid with one input group.
   --format jpg|png        Output image format. Default: jpg
   --jpeg-quality VALUE    JPEG quality for ffmpeg -q:v. Lower is better. Default: 2
   --png-compression VALUE PNG compression level. Default: 3
@@ -40,6 +42,7 @@ Options:
 Examples:
   ./extract_yolo_frames.sh 20260701_154812
   ./extract_yolo_frames.sh --fps 5 recordings/20260701_154812
+  ./extract_yolo_frames.sh --fps 2 fixed/*
   ./extract_yolo_frames.sh --dataset-root ../TennisBot/tools/yolo/yolo/dataset 20260701_154812
   ./extract_yolo_frames.sh recordings/20260701_154812/*video0*.mkv recordings/20260701_154812/*video2*.mkv
 
@@ -151,13 +154,110 @@ print_command() {
 }
 
 collect_existing_frames() {
-  local camera="$1"
+  local session="$1"
+  local camera="$2"
   local restore_nullglob
 
   restore_nullglob="$(shopt -p nullglob || true)"
   shopt -s nullglob
-  MATCHING_FRAMES=( "${IMAGES_DIR%/}/${SESSION}_${camera}_frame_"*".${IMAGE_FORMAT}" )
+  MATCHING_FRAMES=( "${IMAGES_DIR%/}/${session}_${camera}_frame_"*".${IMAGE_FORMAT}" )
   eval "$restore_nullglob"
+}
+
+process_group() {
+  local group_label="$1"
+  local group_session_hint="$2"
+  local group_session first_base video cam index output_pattern old_frame
+  local ffmpeg_args
+
+  if [[ "${#VIDEO_FILES[@]}" -eq 0 ]]; then
+    echo "No video files found in ${group_label}." >&2
+    return 0
+  fi
+  PROCESSED_VIDEO_COUNT=$((PROCESSED_VIDEO_COUNT + ${#VIDEO_FILES[@]}))
+
+  if [[ -n "$REQUESTED_SESSION" ]]; then
+    group_session="$(sanitize_label "$REQUESTED_SESSION")"
+  elif [[ -n "$group_session_hint" ]]; then
+    group_session="$(sanitize_label "$group_session_hint")"
+  else
+    first_base="$(basename "${VIDEO_FILES[0]}")"
+    if [[ "$first_base" =~ ^([0-9]{8}_[0-9]{6}) ]]; then
+      group_session="$(sanitize_label "${BASH_REMATCH[1]}")"
+    else
+      group_session="$(sanitize_label "$(basename "$(dirname "${VIDEO_FILES[0]}")")")"
+    fi
+  fi
+
+  CAM_LABELS=()
+  CAMERA_BY_FILE=()
+  for video in "${VIDEO_FILES[@]}"; do
+    cam="$(camera_label_for_file "$video")"
+    if seen_label "$cam"; then
+      echo "Multiple videos in ${group_label} map to camera '${cam}'." >&2
+      echo "Adjust --cam-map or pass one file per camera." >&2
+      exit 2
+    fi
+    CAM_LABELS+=("$cam")
+    CAMERA_BY_FILE+=("$cam")
+  done
+
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    mkdir -p "$IMAGES_DIR" "$LABELS_DIR"
+  fi
+
+  echo
+  echo "Group: ${group_label}"
+  echo "Session: ${group_session}"
+  echo "FPS: ${FPS}"
+  echo "Images: ${IMAGES_DIR}"
+  echo "Labels: ${LABELS_DIR}"
+
+  for index in "${!VIDEO_FILES[@]}"; do
+    video="${VIDEO_FILES[$index]}"
+    cam="${CAMERA_BY_FILE[$index]}"
+    output_pattern="${IMAGES_DIR%/}/${group_session}_${cam}_frame_%06d.${IMAGE_FORMAT}"
+    ffmpeg_args=(-hide_banner -loglevel info)
+
+    if [[ "$OVERWRITE" -eq 1 ]]; then
+      ffmpeg_args+=(-y)
+    else
+      ffmpeg_args+=(-n)
+    fi
+
+    ffmpeg_args+=(-i "$video" -vf "fps=${FPS}" -start_number 1)
+    case "$IMAGE_FORMAT" in
+      jpg)
+        ffmpeg_args+=(-q:v "$JPEG_QUALITY" "$output_pattern")
+        ;;
+      png)
+        ffmpeg_args+=(-compression_level "$PNG_COMPRESSION" "$output_pattern")
+        ;;
+    esac
+
+    echo
+    echo "Extracting ${video} -> ${output_pattern}"
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      print_command "${ffmpeg_args[@]}"
+      continue
+    fi
+
+    if [[ "$OVERWRITE" -eq 1 ]]; then
+      collect_existing_frames "$group_session" "$cam"
+      for old_frame in "${MATCHING_FRAMES[@]-}"; do
+        rm -f "$old_frame"
+      done
+    else
+      collect_existing_frames "$group_session" "$cam"
+      if [[ "${#MATCHING_FRAMES[@]}" -gt 0 ]]; then
+        echo "Output already exists for ${group_session}/${cam}: ${MATCHING_FRAMES[0]}" >&2
+        echo "Use --overwrite to replace matching frames." >&2
+        exit 1
+      fi
+    fi
+
+    ffmpeg "${ffmpeg_args[@]}"
+  done
 }
 
 FPS="${FPS:-2}"
@@ -326,111 +426,60 @@ if [[ -z "$LABELS_DIR" ]]; then
   LABELS_DIR="${DATASET_ROOT%/}/labels"
 fi
 
-VIDEO_FILES=()
+REQUESTED_SESSION="$SESSION"
+DIR_INPUTS=()
+FILE_INPUTS=()
 for input in "${POSITIONAL[@]}"; do
   if [[ -d "$input" ]]; then
-    add_videos_from_dir "$input"
-    if [[ -z "$SESSION" ]]; then
-      SESSION="$(basename "$input")"
-    fi
+    DIR_INPUTS+=("$input")
   elif [[ -f "$input" ]]; then
     if ! is_video_file "$input"; then
       echo "Not a supported video file: $input" >&2
       exit 2
     fi
-    VIDEO_FILES+=("$input")
-  elif [[ "${#POSITIONAL[@]}" -eq 1 && -d "${RECORDINGS_ROOT%/}/$input" ]]; then
-    add_videos_from_dir "${RECORDINGS_ROOT%/}/$input"
-    if [[ -z "$SESSION" ]]; then
-      SESSION="$input"
-    fi
+    FILE_INPUTS+=("$input")
+  elif [[ -d "${RECORDINGS_ROOT%/}/$input" ]]; then
+    DIR_INPUTS+=("${RECORDINGS_ROOT%/}/$input")
   else
     echo "Input not found: $input" >&2
     exit 2
   fi
 done
 
-if [[ "${#VIDEO_FILES[@]}" -eq 0 ]]; then
+GROUP_COUNT="${#DIR_INPUTS[@]}"
+if [[ "${#FILE_INPUTS[@]}" -gt 0 ]]; then
+  GROUP_COUNT=$((GROUP_COUNT + 1))
+fi
+
+if [[ "$GROUP_COUNT" -eq 0 ]]; then
   echo "No video files found." >&2
   exit 1
 fi
 
-if [[ -z "$SESSION" ]]; then
-  first_base="$(basename "${VIDEO_FILES[0]}")"
-  if [[ "$first_base" =~ ^([0-9]{8}_[0-9]{6}) ]]; then
-    SESSION="${BASH_REMATCH[1]}"
-  else
-    SESSION="$(basename "$(dirname "${VIDEO_FILES[0]}")")"
-  fi
-fi
-SESSION="$(sanitize_label "$SESSION")"
-
-CAM_LABELS=()
-CAMERA_BY_FILE=()
-for video in "${VIDEO_FILES[@]}"; do
-  cam="$(camera_label_for_file "$video")"
-  if seen_label "$cam"; then
-    echo "Multiple videos map to camera '${cam}'. Adjust --cam-map or pass one file per camera." >&2
-    exit 2
-  fi
-  CAM_LABELS+=("$cam")
-  CAMERA_BY_FILE+=("$cam")
-done
-
-if [[ "$DRY_RUN" -eq 0 ]]; then
-  mkdir -p "$IMAGES_DIR" "$LABELS_DIR"
+if [[ -n "$REQUESTED_SESSION" && "$GROUP_COUNT" -gt 1 ]]; then
+  echo "--session can only be used with one input group." >&2
+  exit 2
 fi
 
-echo "Session: ${SESSION}"
-echo "FPS: ${FPS}"
-echo "Images: ${IMAGES_DIR}"
-echo "Labels: ${LABELS_DIR}"
-
-for index in "${!VIDEO_FILES[@]}"; do
-  video="${VIDEO_FILES[$index]}"
-  cam="${CAMERA_BY_FILE[$index]}"
-  output_pattern="${IMAGES_DIR%/}/${SESSION}_${cam}_frame_%06d.${IMAGE_FORMAT}"
-  ffmpeg_args=(-hide_banner -loglevel info)
-
-  if [[ "$OVERWRITE" -eq 1 ]]; then
-    ffmpeg_args+=(-y)
-  else
-    ffmpeg_args+=(-n)
-  fi
-
-  ffmpeg_args+=(-i "$video" -vf "fps=${FPS}" -start_number 1)
-  case "$IMAGE_FORMAT" in
-    jpg)
-      ffmpeg_args+=(-q:v "$JPEG_QUALITY" "$output_pattern")
-      ;;
-    png)
-      ffmpeg_args+=(-compression_level "$PNG_COMPRESSION" "$output_pattern")
-      ;;
-  esac
-
-  echo
-  echo "Extracting ${video} -> ${output_pattern}"
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    print_command "${ffmpeg_args[@]}"
-    continue
-  fi
-
-  if [[ "$OVERWRITE" -eq 1 ]]; then
-    collect_existing_frames "$cam"
-    for old_frame in "${MATCHING_FRAMES[@]-}"; do
-      rm -f "$old_frame"
-    done
-  else
-    collect_existing_frames "$cam"
-    if [[ "${#MATCHING_FRAMES[@]}" -gt 0 ]]; then
-      echo "Output already exists for ${SESSION}/${cam}: ${MATCHING_FRAMES[0]}" >&2
-      echo "Use --overwrite to replace matching frames." >&2
-      exit 1
-    fi
-  fi
-
-  ffmpeg "${ffmpeg_args[@]}"
+PROCESSED_VIDEO_COUNT=0
+for input_dir in "${DIR_INPUTS[@]-}"; do
+  VIDEO_FILES=()
+  add_videos_from_dir "$input_dir"
+  process_group "$input_dir" "$(basename "$input_dir")"
 done
+
+if [[ "${#FILE_INPUTS[@]}" -gt 0 ]]; then
+  VIDEO_FILES=()
+  for input_file in "${FILE_INPUTS[@]}"; do
+    VIDEO_FILES+=("$input_file")
+  done
+  process_group "explicit files" ""
+fi
+
+if [[ "$PROCESSED_VIDEO_COUNT" -eq 0 ]]; then
+  echo "No video files found." >&2
+  exit 1
+fi
 
 echo
 echo "Done. Start the annotation service and open http://127.0.0.1:8765"
