@@ -28,6 +28,8 @@ Defaults:
   PREVIEW_WIDTH=640
   PREVIEW_FPS=15
   PREVIEW_PORT=23456
+  V4L2_CTRLS=
+  V4L2_CTRL_SETTLE=1
 
 Examples:
   ./record_dual_cameras.sh
@@ -35,6 +37,7 @@ Examples:
   ./record_dual_cameras.sh /data/camera-recordings
   SOFT_SYNC=0 ./record_dual_cameras.sh
   ./record_dual_cameras.sh --single-process
+  V4L2_CTRLS=auto_exposure=1,exposure_time_absolute=166 ./record_dual_cameras.sh
   PREVIEW_WIDTH=480 PREVIEW_FPS=10 ./record_dual_cameras.sh
 USAGE
 }
@@ -199,6 +202,22 @@ print_parallel_logs() {
   done
 }
 
+apply_camera_controls() {
+  local camera
+
+  if [[ -z "$V4L2_CTRLS" ]]; then
+    return 0
+  fi
+
+  require_cmd v4l2-ctl
+  for camera in "$CAM_A" "$CAM_B"; do
+    echo "Applying V4L2 controls to ${camera}: ${V4L2_CTRLS}"
+    v4l2-ctl --device="$camera" --set-ctrl="$V4L2_CTRLS"
+  done
+  echo "Waiting ${V4L2_CTRL_SETTLE}s for camera controls to settle."
+  sleep "$V4L2_CTRL_SETTLE"
+}
+
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
@@ -320,10 +339,13 @@ PREVIEW_WIDTH="${PREVIEW_WIDTH:-640}"
 PREVIEW_FPS="${PREVIEW_FPS:-15}"
 PREVIEW_PORT="${PREVIEW_PORT:-23456}"
 THREAD_QUEUE_SIZE="${THREAD_QUEUE_SIZE:-1024}"
+V4L2_CTRLS="${V4L2_CTRLS:-}"
+V4L2_CTRL_SETTLE="${V4L2_CTRL_SETTLE:-1}"
 
 FFMPEG_GLOBAL_ARGS=()
 FFMPEG_INPUT_SYNC_ARGS=()
 FFMPEG_OUTPUT_SYNC_ARGS=()
+apply_camera_controls
 if [[ "$SOFT_SYNC" -eq 1 ]]; then
   FFMPEG_GLOBAL_ARGS=(-copyts)
   FFMPEG_INPUT_SYNC_ARGS=(-timestamps abs)
