@@ -20,7 +20,7 @@ Defaults:
   INPUT_FORMAT=mjpeg
   CONTAINER=mkv
   EXPOSURE_ABSOLUTE=200      # UVC units, usually 100us => about 20ms
-  WHITE_BALANCE_AUTOMATIC=1
+  WHITE_BALANCE_AUTOMATIC=0
   WHITE_BALANCE_TEMPERATURE=4600
   BRIGHTNESS=-5
   CONTRAST=1
@@ -40,8 +40,7 @@ Options:
   --out-root DIR           Remote output root. Default: ~/recordings/tennis
   --duration SECONDS       Stop automatically after SECONDS.
   --exposure VALUE         exposure_time_absolute value. Default: 200
-  --manual-wb VALUE        Disable auto white balance and set temperature.
-                           Default behavior keeps auto white balance on.
+  --wb VALUE               Fixed white_balance_temperature. Default: 4600
   --brightness VALUE       Default: -5
   --contrast VALUE         Default: 1
   --saturation VALUE       Default: 64
@@ -79,7 +78,7 @@ CONTAINER="${CONTAINER:-mkv}"
 DURATION="${DURATION:-}"
 
 EXPOSURE_ABSOLUTE="${EXPOSURE_ABSOLUTE:-200}"
-WHITE_BALANCE_AUTOMATIC="${WHITE_BALANCE_AUTOMATIC:-1}"
+WHITE_BALANCE_AUTOMATIC="${WHITE_BALANCE_AUTOMATIC:-0}"
 WHITE_BALANCE_TEMPERATURE="${WHITE_BALANCE_TEMPERATURE:-4600}"
 BRIGHTNESS="${BRIGHTNESS:--5}"
 CONTRAST="${CONTRAST:-1}"
@@ -119,7 +118,7 @@ while [[ $# -gt 0 ]]; do
       EXPOSURE_ABSOLUTE="$2"
       shift
       ;;
-    --manual-wb)
+    --wb|--manual-wb)
       WHITE_BALANCE_AUTOMATIC=0
       WHITE_BALANCE_TEMPERATURE="$2"
       shift
