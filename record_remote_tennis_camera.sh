@@ -28,8 +28,8 @@ Defaults:
   GAMMA=100
   GAIN=32
   POWER_LINE_FREQUENCY=1     # 1=50Hz, 2=60Hz
-  SHARPNESS=2
-  BACKLIGHT_COMPENSATION=4
+  SHARPNESS=1
+  BACKLIGHT_COMPENSATION=0
   FOCUS_AUTOMATIC_CONTINUOUS=0
   FOCUS_ABSOLUTE=0
   DURATION=                  # seconds; empty records until Ctrl+C
@@ -45,7 +45,7 @@ Options:
   --brightness VALUE       Default: -5
   --contrast VALUE         Default: 1
   --saturation VALUE       Default: 64
-  --sharpness VALUE        Default: 2
+  --sharpness VALUE        Default: 1
   --container mkv|mjpg     Default: mkv. mkv uses ffmpeg copy; mjpg uses v4l2-ctl.
   --dry-run                Print the remote command without running it.
   -h, --help               Show this help.
@@ -87,8 +87,8 @@ SATURATION="${SATURATION:-64}"
 GAMMA="${GAMMA:-100}"
 GAIN="${GAIN:-32}"
 POWER_LINE_FREQUENCY="${POWER_LINE_FREQUENCY:-1}"
-SHARPNESS="${SHARPNESS:-2}"
-BACKLIGHT_COMPENSATION="${BACKLIGHT_COMPENSATION:-4}"
+SHARPNESS="${SHARPNESS:-1}"
+BACKLIGHT_COMPENSATION="${BACKLIGHT_COMPENSATION:-0}"
 FOCUS_AUTOMATIC_CONTINUOUS="${FOCUS_AUTOMATIC_CONTINUOUS:-0}"
 FOCUS_ABSOLUTE="${FOCUS_ABSOLUTE:-0}"
 DRY_RUN=0
