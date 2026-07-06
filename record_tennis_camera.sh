@@ -16,6 +16,7 @@ Defaults:
   FRAMERATE=30
   INPUT_FORMAT=mjpeg
   CONTAINER=mkv
+  SAMPLE_FPS=                # empty keeps all frames; e.g. 3 keeps 3 fps
   EXPOSURE_ABSOLUTE=200      # UVC units, usually 100us => about 20ms
   WHITE_BALANCE_TEMPERATURE=4600
   BRIGHTNESS=-5
@@ -40,12 +41,15 @@ Options:
   --saturation VALUE       Default: 64
   --sharpness VALUE        Default: 1
   --container mkv|mjpg     Default: mkv. mkv uses ffmpeg copy; mjpg uses v4l2-ctl.
+  --sample-fps VALUE        Keep only VALUE frames per second in MKV output.
+                           Example: --sample-fps 3. This re-encodes MJPEG.
   --dry-run                Print commands without running them.
   -h, --help               Show this help.
 
 Examples:
   ./record_tennis_camera.sh
   ./record_tennis_camera.sh --duration 60
+  ./record_tennis_camera.sh --duration 60 --sample-fps 3
   ./record_tennis_camera.sh --exposure 100 --duration 30
   ./record_tennis_camera.sh --out-root /data/tennis-recordings
 USAGE
@@ -73,6 +77,7 @@ VIDEO_SIZE="${VIDEO_SIZE:-3840x2160}"
 FRAMERATE="${FRAMERATE:-30}"
 INPUT_FORMAT="${INPUT_FORMAT:-mjpeg}"
 CONTAINER="${CONTAINER:-mkv}"
+SAMPLE_FPS="${SAMPLE_FPS:-}"
 DURATION="${DURATION:-}"
 
 EXPOSURE_ABSOLUTE="${EXPOSURE_ABSOLUTE:-200}"
@@ -134,6 +139,10 @@ while [[ $# -gt 0 ]]; do
       CONTAINER="$2"
       shift
       ;;
+    --sample-fps)
+      SAMPLE_FPS="$2"
+      shift
+      ;;
     --dry-run)
       DRY_RUN=1
       ;;
@@ -162,6 +171,14 @@ esac
 
 if [[ -n "$DURATION" && ! "$DURATION" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
   echo "--duration must be a positive number of seconds." >&2
+  exit 2
+fi
+if [[ -n "$SAMPLE_FPS" && ! "$SAMPLE_FPS" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo "--sample-fps must be a positive number." >&2
+  exit 2
+fi
+if [[ "$CONTAINER" != "mkv" && -n "$SAMPLE_FPS" ]]; then
+  echo "--sample-fps is only supported with --container mkv." >&2
   exit 2
 fi
 
@@ -211,10 +228,18 @@ if [[ "$CONTAINER" == "mkv" ]]; then
   if [[ -n "$DURATION" ]]; then
     FFMPEG_CMD+=(-t "$DURATION")
   fi
-  FFMPEG_CMD+=(-map 0:v:0 -c:v copy -an -f matroska "$OUTPUT")
+  if [[ -n "$SAMPLE_FPS" ]]; then
+    FFMPEG_CMD+=(-vf "fps=${SAMPLE_FPS}" -map 0:v:0 -c:v mjpeg -q:v 3 -an -f matroska "$OUTPUT")
+  else
+    FFMPEG_CMD+=(-map 0:v:0 -c:v copy -an -f matroska "$OUTPUT")
+  fi
 
   echo "Recording MKV to ${OUTPUT}"
-  echo "Codec is copied from the camera MJPEG stream; no re-encoding."
+  if [[ -n "$SAMPLE_FPS" ]]; then
+    echo "Keeping ${SAMPLE_FPS} fps and re-encoding as MJPEG."
+  else
+    echo "Codec is copied from the camera MJPEG stream; no re-encoding."
+  fi
   if [[ "$DRY_RUN" -eq 1 ]]; then
     print_command "${FFMPEG_CMD[@]}"
   else

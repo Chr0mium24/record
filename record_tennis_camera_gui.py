@@ -33,6 +33,7 @@ class CameraConfig:
     focus_automatic_continuous: int = 0
     preview_width: int = 960
     preview_fps: int = 10
+    sample_fps: float | None = None
 
     @property
     def controls(self) -> list[str]:
@@ -198,20 +199,34 @@ class TennisRecorderGui:
             str(self.config.framerate),
             "-i",
             self.config.device,
-            "-map",
-            "0:v:0",
-            "-c:v",
-            "copy",
-            "-an",
-            "-f",
-            "matroska",
-            str(output),
         ]
+        if self.config.sample_fps is not None:
+            command.extend(
+                [
+                    "-vf",
+                    f"fps={format_number(self.config.sample_fps)}",
+                    "-map",
+                    "0:v:0",
+                    "-c:v",
+                    "mjpeg",
+                    "-q:v",
+                    "3",
+                    "-an",
+                    "-f",
+                    "matroska",
+                    str(output),
+                ]
+            )
+        else:
+            command.extend(["-map", "0:v:0", "-c:v", "copy", "-an", "-f", "matroska", str(output)])
         self.record_process = subprocess.Popen(command)
         self.recording_started_at = time.monotonic()
         self.current_output = output
         self.stop_button.configure(state=NORMAL)
-        self.status.set(f"Recording: {output}")
+        if self.config.sample_fps is None:
+            self.status.set(f"Recording: {output}")
+        else:
+            self.status.set(f"Recording {format_number(self.config.sample_fps)} fps: {output}")
 
     def stop_recording(self) -> None:
         process = self.record_process
@@ -230,7 +245,10 @@ class TennisRecorderGui:
     def tick(self) -> None:
         if self.record_process is not None and self.recording_started_at is not None and self.current_output is not None:
             elapsed = int(time.monotonic() - self.recording_started_at)
-            self.status.set(f"Recording {elapsed}s: {self.current_output}")
+            if self.config.sample_fps is None:
+                self.status.set(f"Recording {elapsed}s: {self.current_output}")
+            else:
+                self.status.set(f"Recording {elapsed}s at {format_number(self.config.sample_fps)} fps: {self.current_output}")
             if self.record_process.poll() is not None:
                 self.stop_recording()
         self.root.after(1000, self.tick)
@@ -286,12 +304,19 @@ def read_ppm(stream) -> bytes | None:
     return bytes(header) + payload
 
 
+def format_number(value: float) -> str:
+    if value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
 def parse_args() -> CameraConfig:
     parser = argparse.ArgumentParser(description="GUI recorder for the local tennis camera.")
     parser.add_argument("--device", default="/dev/video0")
     parser.add_argument("--out-root", default="~/recordings/tennis")
     parser.add_argument("--preview-width", type=int, default=960)
     parser.add_argument("--preview-fps", type=int, default=10)
+    parser.add_argument("--sample-fps", type=float, default=None, help="Keep only this many frames per second while recording.")
     parser.add_argument("--exposure", type=int, default=200)
     parser.add_argument("--wb", type=int, default=4600)
     args = parser.parse_args()
@@ -302,6 +327,7 @@ def parse_args() -> CameraConfig:
         white_balance_temperature=args.wb,
         preview_width=args.preview_width,
         preview_fps=args.preview_fps,
+        sample_fps=args.sample_fps,
     )
 
 
