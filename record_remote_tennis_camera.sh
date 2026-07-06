@@ -6,9 +6,10 @@ usage() {
 Usage:
   ./record_remote_tennis_camera.sh [options]
 
-Configure and record the remote 4K tennis camera over SSH. The recording stays
-on the remote machine; nothing is copied back automatically. Press Ctrl+C to
-stop when no duration is set.
+Configure and record the remote 4K tennis camera over SSH. The recording uses
+camera defaults except for manual exposure time. It stays on the remote machine;
+nothing is copied back automatically. Press Ctrl+C to stop when no duration is
+set.
 
 Defaults:
   SSH_TARGET=nvidia3@192.168.251.107
@@ -19,15 +20,17 @@ Defaults:
   INPUT_FORMAT=mjpeg
   CONTAINER=mkv
   EXPOSURE_ABSOLUTE=200      # UVC units, usually 100us => about 20ms
-  WHITE_BALANCE_TEMPERATURE=5200
-  BRIGHTNESS=0
+  WHITE_BALANCE_AUTOMATIC=1
+  WHITE_BALANCE_TEMPERATURE=4600
+  BRIGHTNESS=-5
   CONTRAST=1
-  SATURATION=80
+  SATURATION=64
   GAMMA=100
   GAIN=32
   POWER_LINE_FREQUENCY=1     # 1=50Hz, 2=60Hz
   SHARPNESS=2
-  BACKLIGHT_COMPENSATION=0
+  BACKLIGHT_COMPENSATION=4
+  FOCUS_AUTOMATIC_CONTINUOUS=0
   FOCUS_ABSOLUTE=0
   DURATION=                  # seconds; empty records until Ctrl+C
 
@@ -37,10 +40,11 @@ Options:
   --out-root DIR           Remote output root. Default: ~/recordings/tennis
   --duration SECONDS       Stop automatically after SECONDS.
   --exposure VALUE         exposure_time_absolute value. Default: 200
-  --wb VALUE               white_balance_temperature. Default: 5200
-  --brightness VALUE       Default: 0
+  --manual-wb VALUE        Disable auto white balance and set temperature.
+                           Default behavior keeps auto white balance on.
+  --brightness VALUE       Default: -5
   --contrast VALUE         Default: 1
-  --saturation VALUE       Default: 80
+  --saturation VALUE       Default: 64
   --sharpness VALUE        Default: 2
   --container mkv|mjpg     Default: mkv. mkv uses ffmpeg copy; mjpg uses v4l2-ctl.
   --dry-run                Print the remote command without running it.
@@ -75,15 +79,17 @@ CONTAINER="${CONTAINER:-mkv}"
 DURATION="${DURATION:-}"
 
 EXPOSURE_ABSOLUTE="${EXPOSURE_ABSOLUTE:-200}"
-WHITE_BALANCE_TEMPERATURE="${WHITE_BALANCE_TEMPERATURE:-5200}"
-BRIGHTNESS="${BRIGHTNESS:-0}"
+WHITE_BALANCE_AUTOMATIC="${WHITE_BALANCE_AUTOMATIC:-1}"
+WHITE_BALANCE_TEMPERATURE="${WHITE_BALANCE_TEMPERATURE:-4600}"
+BRIGHTNESS="${BRIGHTNESS:--5}"
 CONTRAST="${CONTRAST:-1}"
-SATURATION="${SATURATION:-80}"
+SATURATION="${SATURATION:-64}"
 GAMMA="${GAMMA:-100}"
 GAIN="${GAIN:-32}"
 POWER_LINE_FREQUENCY="${POWER_LINE_FREQUENCY:-1}"
 SHARPNESS="${SHARPNESS:-2}"
-BACKLIGHT_COMPENSATION="${BACKLIGHT_COMPENSATION:-0}"
+BACKLIGHT_COMPENSATION="${BACKLIGHT_COMPENSATION:-4}"
+FOCUS_AUTOMATIC_CONTINUOUS="${FOCUS_AUTOMATIC_CONTINUOUS:-0}"
 FOCUS_ABSOLUTE="${FOCUS_ABSOLUTE:-0}"
 DRY_RUN=0
 
@@ -113,7 +119,8 @@ while [[ $# -gt 0 ]]; do
       EXPOSURE_ABSOLUTE="$2"
       shift
       ;;
-    --wb)
+    --manual-wb)
+      WHITE_BALANCE_AUTOMATIC=0
       WHITE_BALANCE_TEMPERATURE="$2"
       shift
       ;;
@@ -170,7 +177,10 @@ fi
 
 require_cmd ssh
 
-V4L2_CTRLS="auto_exposure=1,exposure_time_absolute=${EXPOSURE_ABSOLUTE},white_balance_automatic=0,white_balance_temperature=${WHITE_BALANCE_TEMPERATURE},brightness=${BRIGHTNESS},contrast=${CONTRAST},saturation=${SATURATION},gamma=${GAMMA},gain=${GAIN},power_line_frequency=${POWER_LINE_FREQUENCY},sharpness=${SHARPNESS},backlight_compensation=${BACKLIGHT_COMPENSATION},focus_automatic_continuous=0,focus_absolute=${FOCUS_ABSOLUTE}"
+V4L2_CTRLS="auto_exposure=1,exposure_time_absolute=${EXPOSURE_ABSOLUTE},white_balance_automatic=${WHITE_BALANCE_AUTOMATIC},brightness=${BRIGHTNESS},contrast=${CONTRAST},saturation=${SATURATION},gamma=${GAMMA},gain=${GAIN},power_line_frequency=${POWER_LINE_FREQUENCY},sharpness=${SHARPNESS},backlight_compensation=${BACKLIGHT_COMPENSATION},focus_automatic_continuous=${FOCUS_AUTOMATIC_CONTINUOUS},focus_absolute=${FOCUS_ABSOLUTE}"
+if [[ "$WHITE_BALANCE_AUTOMATIC" == "0" ]]; then
+  V4L2_CTRLS="${V4L2_CTRLS},white_balance_temperature=${WHITE_BALANCE_TEMPERATURE}"
+fi
 
 remote_script='
 set -Eeuo pipefail
