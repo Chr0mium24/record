@@ -27,7 +27,6 @@ Defaults:
   SHARPNESS=1
   BACKLIGHT_COMPENSATION=0
   FOCUS_AUTOMATIC_CONTINUOUS=0
-  FOCUS_ABSOLUTE=0
   DURATION=                  # seconds; empty records until Ctrl+C
 
 Options:
@@ -87,7 +86,6 @@ POWER_LINE_FREQUENCY="${POWER_LINE_FREQUENCY:-1}"
 SHARPNESS="${SHARPNESS:-1}"
 BACKLIGHT_COMPENSATION="${BACKLIGHT_COMPENSATION:-0}"
 FOCUS_AUTOMATIC_CONTINUOUS="${FOCUS_AUTOMATIC_CONTINUOUS:-0}"
-FOCUS_ABSOLUTE="${FOCUS_ABSOLUTE:-0}"
 DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
@@ -179,7 +177,7 @@ HEIGHT="${VIDEO_SIZE#*x}"
 OUT_ROOT="${OUT_ROOT/#\~/$HOME}"
 TIMESTAMP="$(date '+%Y%m%d_%H%M%S')"
 OUT_DIR="${OUT_ROOT%/}/${TIMESTAMP}"
-V4L2_CTRLS="auto_exposure=1,exposure_time_absolute=${EXPOSURE_ABSOLUTE},white_balance_automatic=0,white_balance_temperature=${WHITE_BALANCE_TEMPERATURE},brightness=${BRIGHTNESS},contrast=${CONTRAST},saturation=${SATURATION},gamma=${GAMMA},gain=${GAIN},power_line_frequency=${POWER_LINE_FREQUENCY},sharpness=${SHARPNESS},backlight_compensation=${BACKLIGHT_COMPENSATION},focus_automatic_continuous=${FOCUS_AUTOMATIC_CONTINUOUS},focus_absolute=${FOCUS_ABSOLUTE}"
+V4L2_CTRLS="auto_exposure=1,exposure_time_absolute=${EXPOSURE_ABSOLUTE},white_balance_automatic=0,white_balance_temperature=${WHITE_BALANCE_TEMPERATURE},brightness=${BRIGHTNESS},contrast=${CONTRAST},saturation=${SATURATION},gamma=${GAMMA},gain=${GAIN},power_line_frequency=${POWER_LINE_FREQUENCY},sharpness=${SHARPNESS},backlight_compensation=${BACKLIGHT_COMPENSATION},focus_automatic_continuous=${FOCUS_AUTOMATIC_CONTINUOUS}"
 
 if [[ "$CONTAINER" == "mkv" ]]; then
   OUTPUT="${OUT_DIR}/${TIMESTAMP}_video0.mkv"

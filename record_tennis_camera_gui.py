@@ -31,30 +31,26 @@ class CameraConfig:
     sharpness: int = 1
     backlight_compensation: int = 0
     focus_automatic_continuous: int = 0
-    focus_absolute: int = 0
     preview_width: int = 960
     preview_fps: int = 10
 
     @property
-    def controls(self) -> str:
-        return ",".join(
-            [
-                "auto_exposure=1",
-                f"exposure_time_absolute={self.exposure_absolute}",
-                "white_balance_automatic=0",
-                f"white_balance_temperature={self.white_balance_temperature}",
-                f"brightness={self.brightness}",
-                f"contrast={self.contrast}",
-                f"saturation={self.saturation}",
-                f"gamma={self.gamma}",
-                f"gain={self.gain}",
-                f"power_line_frequency={self.power_line_frequency}",
-                f"sharpness={self.sharpness}",
-                f"backlight_compensation={self.backlight_compensation}",
-                f"focus_automatic_continuous={self.focus_automatic_continuous}",
-                f"focus_absolute={self.focus_absolute}",
-            ]
-        )
+    def controls(self) -> list[str]:
+        return [
+            "auto_exposure=1",
+            f"exposure_time_absolute={self.exposure_absolute}",
+            "white_balance_automatic=0",
+            f"white_balance_temperature={self.white_balance_temperature}",
+            f"brightness={self.brightness}",
+            f"contrast={self.contrast}",
+            f"saturation={self.saturation}",
+            f"gamma={self.gamma}",
+            f"gain={self.gain}",
+            f"power_line_frequency={self.power_line_frequency}",
+            f"sharpness={self.sharpness}",
+            f"backlight_compensation={self.backlight_compensation}",
+            f"focus_automatic_continuous={self.focus_automatic_continuous}",
+        ]
 
 
 class TennisRecorderGui:
@@ -93,7 +89,7 @@ class TennisRecorderGui:
 
     def configure_camera(self) -> None:
         width, height = self.config.video_size.split("x", 1)
-        commands = [
+        subprocess.run(
             [
                 "v4l2-ctl",
                 "-d",
@@ -101,10 +97,17 @@ class TennisRecorderGui:
                 f"--set-fmt-video=width={width},height={height},pixelformat=MJPG",
                 f"--set-parm={self.config.framerate}",
             ],
-            ["v4l2-ctl", "-d", self.config.device, f"--set-ctrl={self.config.controls}"],
-        ]
-        for command in commands:
-            subprocess.run(command, check=True)
+            check=True,
+        )
+        for control in self.config.controls:
+            result = subprocess.run(
+                ["v4l2-ctl", "-d", self.config.device, f"--set-ctrl={control}"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            if result.returncode != 0:
+                print(f"Warning: failed to set {control}: {result.stderr.strip()}", file=sys.stderr)
 
     def start_preview(self) -> None:
         if self.preview_process is not None:
