@@ -3,3 +3,4 @@
 recordings/
 test/
 __pycache__/
+*.mkv
