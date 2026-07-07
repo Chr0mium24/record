@@ -183,6 +183,7 @@ class TennisRecorderGui:
         out_dir = out_root / timestamp
         out_dir.mkdir(parents=True, exist_ok=True)
         output = out_dir / f"{timestamp}_video0.mkv"
+        metadata = output.with_suffix(".controls.txt")
         command = [
             "ffmpeg",
             "-hide_banner",
@@ -219,6 +220,7 @@ class TennisRecorderGui:
             )
         else:
             command.extend(["-map", "0:v:0", "-c:v", "copy", "-an", "-f", "matroska", str(output)])
+        self.write_metadata(metadata, output, command, timestamp)
         self.record_process = subprocess.Popen(command)
         self.recording_started_at = time.monotonic()
         self.current_output = output
@@ -227,6 +229,39 @@ class TennisRecorderGui:
             self.status.set(f"Recording: {output}")
         else:
             self.status.set(f"Recording {format_number(self.config.sample_fps)} fps: {output}")
+
+    def write_metadata(self, path: Path, output: Path, record_command: list[str], timestamp: str) -> None:
+        lines = [
+            f"timestamp={timestamp}",
+            f"device={self.config.device}",
+            f"output={output}",
+            "container=mkv",
+            f"video_size={self.config.video_size}",
+            f"framerate={self.config.framerate}",
+            f"input_format={self.config.input_format}",
+            f"sample_fps={'' if self.config.sample_fps is None else format_number(self.config.sample_fps)}",
+            f"v4l2_ctrls={','.join(self.config.controls)}",
+            "",
+            "[record_command]",
+            format_command(record_command),
+            "",
+            "[current_format]",
+            run_text(["v4l2-ctl", "-d", self.config.device, "--get-fmt-video", "--get-parm"]),
+            "",
+            "[current_controls]",
+            run_text(
+                [
+                    "v4l2-ctl",
+                    "-d",
+                    self.config.device,
+                    "--get-ctrl=brightness,contrast,saturation,white_balance_automatic,white_balance_temperature,gamma,gain,power_line_frequency,sharpness,backlight_compensation,auto_exposure,exposure_time_absolute,focus_automatic_continuous,focus_absolute",
+                ]
+            ),
+            "",
+            "[all_controls]",
+            run_text(["v4l2-ctl", "-d", self.config.device, "--list-ctrls-menus"]),
+        ]
+        path.write_text("\n".join(lines) + "\n")
 
     def stop_recording(self) -> None:
         process = self.record_process
@@ -274,6 +309,21 @@ def terminate_process(process: subprocess.Popen[bytes]) -> None:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
+
+
+def format_command(command: list[str]) -> str:
+    return " ".join(sh_quote(part) for part in command)
+
+
+def sh_quote(value: str) -> str:
+    if value and all(character.isalnum() or character in "/:._=-" for character in value):
+        return value
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def run_text(command: list[str]) -> str:
+    result = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    return result.stdout.rstrip()
 
 
 def read_ppm(stream) -> bytes | None:

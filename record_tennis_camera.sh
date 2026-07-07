@@ -71,6 +71,45 @@ print_command() {
   printf '\n'
 }
 
+write_metadata() {
+  local metadata="$1"
+
+  {
+    echo "timestamp=${TIMESTAMP}"
+    echo "device=${DEVICE}"
+    echo "output=${OUTPUT}"
+    echo "container=${CONTAINER}"
+    echo "video_size=${VIDEO_SIZE}"
+    echo "framerate=${FRAMERATE}"
+    echo "input_format=${INPUT_FORMAT}"
+    echo "sample_fps=${SAMPLE_FPS}"
+    echo "duration=${DURATION}"
+    echo "v4l2_ctrls=${V4L2_CTRLS}"
+    echo
+    echo "[set_format_command]"
+    print_command "${SET_FORMAT_CMD[@]}"
+    echo
+    echo "[set_controls_command]"
+    print_command "${SET_CTRLS_CMD[@]}"
+    echo
+    echo "[record_command]"
+    if [[ "$CONTAINER" == "mkv" ]]; then
+      print_command "${FFMPEG_CMD[@]}"
+    else
+      print_command "${V4L2_RECORD_CMD[@]}"
+    fi
+    echo
+    echo "[current_format]"
+    v4l2-ctl -d "$DEVICE" --get-fmt-video --get-parm 2>&1 || true
+    echo
+    echo "[current_controls]"
+    v4l2-ctl -d "$DEVICE" --get-ctrl=brightness,contrast,saturation,white_balance_automatic,white_balance_temperature,gamma,gain,power_line_frequency,sharpness,backlight_compensation,auto_exposure,exposure_time_absolute,focus_automatic_continuous,focus_absolute 2>&1 || true
+    echo
+    echo "[all_controls]"
+    v4l2-ctl -d "$DEVICE" --list-ctrls-menus 2>&1 || true
+  } > "$metadata"
+}
+
 DEVICE="${DEVICE:-/dev/video0}"
 OUT_ROOT="${OUT_ROOT:-~/recordings/tennis}"
 VIDEO_SIZE="${VIDEO_SIZE:-3840x2160}"
@@ -201,12 +240,14 @@ if [[ "$CONTAINER" == "mkv" ]]; then
 else
   OUTPUT="${OUT_DIR}/${TIMESTAMP}_video0.mjpg"
 fi
+METADATA="${OUTPUT%.*}.controls.txt"
 
 SET_FORMAT_CMD=(v4l2-ctl -d "$DEVICE" --set-fmt-video="width=${WIDTH},height=${HEIGHT},pixelformat=MJPG" --set-parm="$FRAMERATE")
 SET_CTRLS_CMD=(v4l2-ctl -d "$DEVICE" --set-ctrl="$V4L2_CTRLS")
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "Output: ${OUTPUT}"
+  echo "Metadata: ${METADATA}"
   echo "Controls: ${V4L2_CTRLS}"
   print_command "${SET_FORMAT_CMD[@]}"
   print_command "${SET_CTRLS_CMD[@]}"
@@ -235,6 +276,7 @@ if [[ "$CONTAINER" == "mkv" ]]; then
   fi
 
   echo "Recording MKV to ${OUTPUT}"
+  echo "Saving camera settings to ${METADATA}"
   if [[ -n "$SAMPLE_FPS" ]]; then
     echo "Keeping ${SAMPLE_FPS} fps and re-encoding as MJPEG."
   else
@@ -243,6 +285,7 @@ if [[ "$CONTAINER" == "mkv" ]]; then
   if [[ "$DRY_RUN" -eq 1 ]]; then
     print_command "${FFMPEG_CMD[@]}"
   else
+    write_metadata "$METADATA"
     exec "${FFMPEG_CMD[@]}"
   fi
 else
@@ -254,9 +297,11 @@ else
   V4L2_RECORD_CMD+=(--stream-to="$OUTPUT")
 
   echo "Recording raw MJPEG stream to ${OUTPUT}"
+  echo "Saving camera settings to ${METADATA}"
   if [[ "$DRY_RUN" -eq 1 ]]; then
     print_command "${V4L2_RECORD_CMD[@]}"
   else
+    write_metadata "$METADATA"
     exec "${V4L2_RECORD_CMD[@]}"
   fi
 fi
